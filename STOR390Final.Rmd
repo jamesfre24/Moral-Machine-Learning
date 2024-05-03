@@ -1,0 +1,212 @@
+---
+title: "Statistical Discrimination in Law Enforcement"
+author: "James Freeland"
+date: "2024-05-02"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+header-includes: \usepackage{float}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message= FALSE, warning = FALSE)
+```
+
+```{r}
+library('dplyr')
+library(caret)
+library(float)
+library(knitr)
+library(kableExtra)
+library(float)
+load("/Users/xanfreeland/Desktop/390Final/ICPSR_34562/DS0001/34562-0001-Data.rda")
+NLSY = da34562.0001
+```
+
+```{r}
+#"""DATA CLEANING"""
+
+years <- 15:20  # Define the range of years
+delinquent_behaviors <- c("DESTROY_CY",  "STEAL_OVER_50_CY", "ASSAULT_CY", "SELL_DRUGS_CY", "IN_A_GANG_CY", "MARIJUANA_CY", "ALCOHOL_CY")
+education_status <- c("ENROLL_ED_CY", "WKS_WK_CY")
+law_enforcement_interaction <- c("EVER_ARR_CY")
+
+delinquent_vars <- unlist(lapply(delinquent_behaviors, function(x) paste0(x, years[1:6])))
+education_vars <- c(unlist(lapply(education_status, function(x) paste0(x, years))), "HGC_CY20", "ASVAB_SCORE")
+family_vars <- c("FMSTRC97", "MOMEMP97", "DADEMP97", "RESPARED")
+law_interaction_vars <- unlist(lapply(law_enforcement_interaction, function(x) paste0(x, years)))
+
+all_vars <- c(delinquent_vars, education_vars, law_interaction_vars, family_vars)
+
+NLSY_subset <- NLSY[, all_vars, drop = FALSE]
+
+data <- na.omit(NLSY_subset)
+```
+
+```{r}
+#Creating Response variables
+arrested <- paste0("EVER_ARR_CY", years)
+
+data$ARRESTED <- 0
+
+for (i in 1:nrow(data)) {
+  if (any(data[i, arrested] == "(1) Yes")) {
+    data[i, "ARRESTED"] <- 1
+  }
+}
+
+total_arrested <- sum(data$ARRESTED)
+
+```
+
+```{r}
+#partitioning data
+set.seed(123)
+
+train_index <- createDataPartition(data$ARRESTED, p = 0.8, list = FALSE)
+
+train_data <- data[train_index, ]
+test_data <- data[-train_index, ]
+```
+
+```{r}
+# Create models
+arrest_mod_del <- glm(train_data$ARRESTED ~ ., data = train_data[, delinquent_vars], family = binomial)
+arrest_mod_fam <- glm(train_data$ARRESTED ~ . -ENROLL_ED_CY16, data = train_data[, c(family_vars, education_vars)], family = binomial)
+arrest_mod_all <- glm(train_data$ARRESTED ~ . -ENROLL_ED_CY16, data = train_data[, c(delinquent_vars, family_vars, education_vars)], family = binomial)
+```
+
+```{r}
+#testing for collinearity (because there is no way there isn't)
+library(car)
+vif_all <- vif(arrest_mod_all)
+vif_del <- vif(arrest_mod_del)
+vif_fam <- vif(arrest_mod_fam)
+
+#Highest Grade Completed is very collinear, will adjust by using highest grade completed by age 20, everything else VIF <=3
+```
+
+I. Introduction	
+
+Statistical discrimination within law enforcement is the use of empirical data and statistical algorithms to predict the likelihood of criminal activity based on group characteristics. It is used to increase the objectivity and efficiency of policing practices. However, statistical discrimination raises serious ethical and accuracy concerns that are exacerbated by model bias and imperfect information. Historically, males, specifically of African or aboriginal descent and those who are financially insecure or mentally ill tend to have higher rates of conviction than their counterparts, holding all else equal. Statistical discrimination became a legal precedent in the 1993 case, Whren v. United States, when two black men were stopped while driving and subsequently arrested for possession of cocaine despite legal provocation for the stop in the first place.
+
+In pursuit of understanding the influence of group characteristics on arrests and convictions, Ambrose Leung et al. performed a study in 2005 that tested survey data of Montréal youths self-reporting crime and various other characteristics in order to determine if police overuse personal information on individuals when investigating criminal activity. After data cleaning, the survey yielded 639 individuals who, at age, lived in lower-income regions of Montréal. Due to the relatively isolated area of study, those sampled were fairly homogenous in immutable factors such as race and sex, leading to the omission of such variables within their models. Variables that were used include schooling, criminal and delinquent associates, parental characteristics, family type, employment, and gang membership. 
+
+The researchers regressed three logit models on group characteristics to predict the probability of showing up in court, as a proxy for criminality. The initial model was regressed upon self-reported delinquencies, the second on individual and family characteristics, and the third is a combination of the two. In their third regression, when controlling for delinquent behavior, schooling, and other individual characteristics still had significant effects on the likelihood of making a court appearance. This is counter to the pursuit of pure, informed statistical discrimination as one would expect group characteristics to become futile within the model. This insinuates that law enforcement overuses specific familial and individual characteristics of criminal behavior, underscoring a normative concern about the disproportionate use of group characteristics when pursuing and apprehending individuals.
+
+II. Analysis of Methods
+
+In an attempt to substantiate these findings, I tried to create a similar series of models on the 1997 National Longitudinal Survey of Youth (NLSY97). The NLSY97 followed a group of young individuals for many years as they transitioned into adulthood, gathering information on self-reported delinquent behavior, individual and family characteristics, and legal engagements. There were initially 8,900 respondents of diverse backgrounds from around the United States. The data contained intratemporal responses for most features that were recorded for each year of the individual's life. For my study, I restricted intratemporal indicator regressors to ages 15 through 20 for respondent consistency.  
+
+In my pursuit, I created three vectors of characteristic features. The first is the delinquent vector consisting of self-reports of marijuana and alcohol use, theft over $50, assaultive behavior, the sale of illegal drugs, destruction of property, and gang membership across the ages of 15 to 20. The second vector is individual characteristics including education enrollment, highest grade completed, ASVAB score, and weeks worked in a given year. The third is family characteristics including family structure, employment status of their mother and father, and parental education.
+
+Three logit regressions are modeled from these vectors: the first is regressed solely upon the delinquency vector; the second upon individual and familial characteristics; and the third from a combination of the two. A logit model is the best fit to model this data due to its ability to handle binary outcomes. Due to the nature of many regressors being intratemporal indicators, there was a serious concern about multicollinearity amongst the variables. To reconcile this I computed a Variance Inflation Factor (VIF) calculation on the regressed models. This revealed that the intratemporal series of the highest grade completed (HGC) variables were highly collinear, leading to the decision to only include the HGC at the age of twenty. All other intratemporal variable series proved to not be highly collinear with GVIF scores less than or equal to 3, which was determined to be sufficient for this analysis. 
+
+```{r results='asis', echo=FALSE}
+arrest_mod_del_summary <- as.data.frame(summary(arrest_mod_del)$coefficients)
+arrest_mod_fam_summary <- as.data.frame(summary(arrest_mod_fam)$coefficients)
+arrest_mod_all_summary <- as.data.frame(summary(arrest_mod_all)$coefficients)
+
+dt_del <- kable(arrest_mod_del_summary, format = "latex", booktabs = TRUE, digits = 3 ,caption = "Delinquency Model Summary") %>%
+  kable_styling(font_size = 7, latex_options = c("striped", "hold_position"))
+dt_fam <- kable(arrest_mod_fam_summary, format = "latex", booktabs = TRUE, digits = 3 ,caption = "Familial Model Summary") %>%
+  kable_styling(font_size = 7, latex_options = c("striped", "hold_position"))
+dt_all <- kable(arrest_mod_all_summary, format = "latex", booktabs = TRUE, digits = 3 ,caption = "Combined Model Summary") %>%
+  kable_styling(font_size = 6, latex_options = c("striped", "hold_position"))
+
+
+dt_del
+```
+
+Within the first regression, solely on delinquent behaviors, the variables deemed statistically significant with positive influence in predicting the likelihood of being arrested were stealing over $50 at both ages 15 and 16, assaultive crimes at ages 15 and 16, marijuana consumption at age 16, and alcohol consumption at age 19. This seems to suggest that participating in delinquent activities at a younger age increases the likelihood of being arrested. Alcohol consumption at age 19 being significant was slightly surprising but could suggest behaviors perceived as less severe in earlier years become more scrutinized by law enforcement as individuals approach legal adulthood. 
+
+```{r results='asis', echo=FALSE}
+dt_fam
+dt_all
+```
+
+In the second regression on individual and familial attributes, enrollment in education at age 19 was significant and decreased the likelihood of an individual being arrested. The highest grade completed by age 20 was the most significant indicator and also suggested that the more education an individual received, the less likely they are to be arrested. 
+
+
+
+
+
+In the combined regression stealing over $50 at the age of 15 remained highly significant. However, such theft at age 19 became slightly less significant as opposed to age 16. Assaultive behaviors were significant at age 16 and marijuana consumption was significant at ages 16 and 19. Once again, alcohol consumption at age 19 is a significant predictor. These trends seem to corroborate that beginning to engage in delinquent behavior at younger ages increases the likelihood of being arrested. Additionally, the significance at age 19 may suggest maintaining delinquent behavior into early adulthood also increases the likelihood of arrest. The only individual characteristic that maintained significance is education enrollment at age 19 decreasing the log odds of being arrested. This corroborates Leung’s finding that police may engage with students differently than non-students when policing, specifically with those at age 19 who are likely to be early in their higher education careers.  
+
+It should be noted all three models were fairly accurate, predicting correctly around 80% of the time; additionally, I fitted receiver operating characteristic curves (ROC) to the models, with each model capturing about 70% of the area under the curve; and when computing a confusion matrix, the models tended to commit false negative predictions at higher frequencies than false positive. This pattern of results underscores the robustness of the models in identifying non-arrest cases accurately, while also highlighting a potential area for improvement in reducing false negatives.
+
+```{r results='asis', ROC-plots, echo=FALSE, fig.cap="ROC Curves for Delinquency, Family, and Combined Models"}
+library(pROC)
+
+evaluate_model <- function(model, test_data, response_var) {
+  predictions <- predict(model, newdata = test_data, type = "response")
+  actual_responses <- test_data[[response_var]][!is.na(predictions)]
+  
+  roc_curve <- roc(actual_responses, predictions)
+  auc_value <- auc(roc_curve)
+  
+  # Plot will be handled outside of this function, only return the roc_curve object and AUC
+  list(roc_curve = roc_curve, auc_value = auc_value)
+}
+
+arrest_acc_del <- evaluate_model(arrest_mod_del, test_data, "ARRESTED")
+arrest_acc_fam <- evaluate_model(arrest_mod_fam, test_data, "ARRESTED")
+arrest_acc_all <- evaluate_model(arrest_mod_all, test_data, "ARRESTED")
+
+cat('\\newpage')
+
+
+par(mfrow=c(1,3))
+
+
+plot(arrest_acc_del$roc_curve, main=paste("Delinquency Model\nAUC =", round(arrest_acc_del$auc_value, 2)))
+plot(arrest_acc_fam$roc_curve, main=paste("Family Model\nAUC =", round(arrest_acc_fam$auc_value, 2)))
+plot(arrest_acc_all$roc_curve, main=paste("Combined Model\nAUC =", round(arrest_acc_all$auc_value, 2)))
+
+par(mfrow=c(1,1))
+
+```
+III. Analysis of Normative Consideration
+
+In evaluating the normative considerations surrounding the use of statistical methods in law enforcement, there is a trend of the overuse of specific familial and individual characteristics as indications of criminal activity. It is important to employ philosophical frameworks such as utilitarianism, deontology, and the harm principle to examine the ethical facets of using statistical discrimination.
+
+From a utilitarian viewpoint, the use of statistical methods in determining the likelihood of criminal behavior can increase the efficiency of resource allocation when policing. If executed properly this optimizes the deployment of limited resources, and could potentially reduce overall crime rates effectively,  minimizing harm within communities. However, this gained efficiency has to be weighed against the potential harm caused by inaccuracies and biases within these statistical models. If the predictive models are created based on biased data, this will cause continually greater bias as the models reinforce and perpetuate existing prejudices, leading to a cycle where specific demographics are disproportionately targeted, thereby exacerbating social inequalities. Since it is impossible for officers to work with perfect information this guarantees policing, as a function of group characteristics, inadvertently prioritizes efficiency over fairness. While this seems like a net good in the short run, this can lead to long-run social harm by undermining trust and equity within communities. 
+
+The harm principle which imposes that agency should only be restricted to prevent harm to others, would similarly suggest that the use of statistical discrimination could be justified if used to prevent harm, but it becomes unjust when it inevitably leads to harm through bias and perpetuation of stereotypes. 
+
+From a deontological focus, the concern is the morality of actions and not just their outcomes. The overuse of demographic characteristics can be considered inherently unethical, regardless of benefit as it treats individuals as a means to an end. In other words, infringing on the liberties of specific individuals for societal benefit is amoral, and when you generalize this action to an entire population it becomes clear such practices could institutionalize discrimination, perpetuating injustice and eroding the moral fabric of law enforcement by violating the inherent rights of individuals.
+In conclusion, the considerations surrounding the use of statistical discrimination methods in policing should and do extend beyond societal efficiency. Misclassifying individuals as likely offenders based on imperfect analysis of group characteristics harms those individuals without cause and erodes the moral authority and legitimacy of law enforcement. Therefore, even though statistical methods, including machine learning, can give valuable insights, they must be implemented with ethical oversight and review so as to not contribute to societal harm.
+
+IV. Conclusion
+
+In this paper, we closely examined the statistical and ethical implications of using statistical discrimination in law enforcement. Leung et al. found that multiple individual and group characteristics were overused in the policing of Montréal youths, which can lead to disproportionate and discriminatory enforcement that targets specific demographics. In my recreation of this study across the entire United States, I have found similar, albeit weaker, corroborative evidence that suggests that membership in education beyond the years of high school, specifically at the age of 19, plays a significant role in determining the likelihood of being arrested. Based on these findings, it is recommended that law enforcement agencies institute stricter ethical oversight on internalized and statistical bias to foster fairness, prevent the perpetuation of stereotypes, and stop the erosion and perceived authority of policing bodies. Future studies should further explore and substantiate the long-term effects of statistical discrimination and how it influences public trust and the behaviors of law enforcement and the communities they serve. 
+
+```{r include=FALSE}
+library(pROC)
+
+evaluate_model <- function(model, test_data, response_var) {
+  predictions <- predict(model, newdata = test_data, type = "response")
+  actual_responses <- test_data[[response_var]][!is.na(predictions)]
+  
+  roc_curve <- roc(actual_responses, predictions)
+  auc_value <- auc(roc_curve)
+  
+  roc <- plot(roc_curve, main = paste("ROC Curve - AUC =", round(auc_value, 2)))
+  
+  predicted_classes <- ifelse(predictions > 0.5, 1, 0)
+  accuracy <- mean(predicted_classes == actual_responses, na.rm = TRUE)
+  confusion <- table(Actual = actual_responses, Predicted = predicted_classes)
+
+  list(accuracy = accuracy, confusion = confusion, auc = auc_value, model_summary = summary(model), rock = roc)
+}
+
+arrest_acc_del <- evaluate_model(arrest_mod_del, test_data, "ARRESTED")
+arrest_acc_fam <- evaluate_model(arrest_mod_fam, test_data, "ARRESTED")
+arrest_acc_all <- evaluate_model(arrest_mod_all, test_data, "ARRESTED")
+
+par(1,3)
+arrest_acc_del["rock"]
+arrest_acc_fam["rock"]
+arrest_acc_all["rock"]
+```
